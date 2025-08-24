@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Solid fallback behind everything (prevents white flash) */
+html, body, #root { height: 100%; background:#0b1020; }
+html, body { overscroll-behavior:none; -webkit-overflow-scrolling:touch; }
+* { -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+
+/* Fixed, GPU-friendly gradient */
+@keyframes gradient-x {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.app-gradient {
+  position: fixed; inset: 0; z-index: -1;
+  background: linear-gradient(120deg,#2563eb 0%,#7c3aed 40%,#22c55e 70%,#eab308 100%);
+  background-size: 300% 300%;
+  animation: gradient-x 16s ease-in-out infinite;
+  will-change: background-position; transform: translateZ(0);
+}
+.app-gradient--soft { filter: brightness(.95) saturate(.95); }
+
+/* Only animate transform/opacity on scroll items */
+.will-smooth { will-change: transform, opacity; transform: translateZ(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-gradient { animation:none !important; }
+}
