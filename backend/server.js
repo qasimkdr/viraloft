@@ -31,6 +31,9 @@ try {
 // ---- App ----
 const app = express();
 
+// ✅ Behind a proxy on Render — enable this so rate limiting & req.ip work correctly
+app.set('trust proxy', 1);
+
 // ---- Security & perf middleware ----
 app.use(
   helmet({
@@ -47,7 +50,7 @@ app.use(mongoSanitize());
 app.use(hpp());
 app.use(xss());
 
-// Basic rate limit for all /api routes
+// Basic rate limit for all /api routes (after trust proxy)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 300,
