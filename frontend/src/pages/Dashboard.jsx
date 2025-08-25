@@ -1,3 +1,4 @@
+// frontend/src/pages/Dashboard.jsx
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import gsap from 'gsap';
@@ -47,9 +48,7 @@ const isPerItemService = (svc) => {
   return false;
 };
 
-// Commission-inclusive display rate (USD):
-// - per-item: (rate * 1.2) per unit
-// - per-1000: (rate * 1.2) per 1000
+// Commission-inclusive display rate (USD)
 const displayRateUSD = (svc) => {
   const base = toNum(svc?.rate, 0);
   return base * 1.2;
@@ -65,6 +64,10 @@ export default function Dashboard() {
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('All');
 
+  // all categories (fetched independently so the dropdown shows every category immediately)
+  const [allCategories, setAllCategories] = useState(['All']);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+
   const containerRef = useRef(null);
   const gridRef = useRef(null);
   const sentinelRef = useRef(null);
@@ -73,19 +76,60 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
 
+  // ✅ send category to backend (omit when "All")
   const fetchPage = async (offset, query, cat) => {
+    const params = { offset, limit: PAGE_SIZE, q: query || '' };
+    if (cat && cat !== 'All') params.category = cat;
+
     const res = await axios.get('/api/services', {
       headers: { Authorization: `Bearer ${token}` },
-      params: { offset, limit: PAGE_SIZE, q: query || '' },
+      params,
     });
-    let arr = Array.isArray(res.data) ? res.data : [];
-    if (cat && cat !== 'All') {
-      arr = arr.filter((s) => (s.category || 'Other') === cat);
-    }
-    return arr;
+
+    return Array.isArray(res.data) ? res.data : [];
   };
 
-  // initial load & debounced live search
+  // Fetch ALL categories up-front (paged under the hood) so the dropdown has the full list
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchAllCats = async () => {
+      if (!token) return;
+      setLoadingCategories(true);
+      const seen = new Set();
+      const PAGE_LIMIT = 200; // backend cap
+      let offset = 0;
+      const MAX_LOOPS = 100; // 100 * 200 = 20k services
+      let loops = 0;
+
+      try {
+        while (loops < MAX_LOOPS) {
+          const r = await axios.get('/api/services', {
+            headers: { Authorization: `Bearer ${token}` },
+            params: { offset, limit: PAGE_LIMIT, q: '' },
+          });
+          const arr = Array.isArray(r.data) ? r.data : [];
+          arr.forEach((s) => seen.add(s.category || 'Other'));
+          offset += PAGE_LIMIT;
+          loops += 1;
+          if (arr.length < PAGE_LIMIT) break;
+        }
+        if (!cancelled) {
+          const list = ['All', ...Array.from(seen).filter(Boolean).sort()];
+          setAllCategories(list);
+        }
+      } catch {
+        if (!cancelled) setAllCategories((prev) => (prev?.length ? prev : ['All']));
+      } finally {
+        if (!cancelled) setLoadingCategories(false);
+      }
+    };
+
+    fetchAllCats();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // ✅ Single debounced loader for q + category (no duplicate effect)
   useEffect(() => {
     if (qDebounceRef.current) clearTimeout(qDebounceRef.current);
 
@@ -110,40 +154,9 @@ export default function Dashboard() {
     }, 300);
 
     return () => clearTimeout(qDebounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, token]);
+  }, [q, category, token]); // 👈 include category
 
-  // category change → reset list and observer cleanly
-  useEffect(() => {
-    let ignore = false;
-    (async () => {
-      setLoadingInitial(true);
-      setEndReached(false);
-      if (ioRef.current) {
-        ioRef.current.disconnect();
-        ioRef.current = null;
-      }
-      try {
-        const first = await fetchPage(0, q, category);
-        if (!ignore) {
-          setServices(first);
-          if (first.length < PAGE_SIZE) setEndReached(true);
-          if (gridRef.current) gridRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      } catch {
-        if (!ignore) {
-          setServices([]);
-          setEndReached(true);
-        }
-      } finally {
-        if (!ignore) setLoadingInitial(false);
-      }
-    })();
-    return () => { ignore = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
-
-  // infinite scroll
+  // infinite scroll (respects current category)
   useEffect(() => {
     if (!sentinelRef.current || loadingInitial || endReached) return;
     if (ioRef.current) ioRef.current.disconnect();
@@ -173,10 +186,13 @@ export default function Dashboard() {
     };
   }, [services.length, loadingInitial, loadingMore, endReached, q, category, token]);
 
-  const categories = useMemo(() => {
+  // fallback categories from currently loaded services (used only if allCategories not ready yet)
+  const fallbackCategories = useMemo(() => {
     const set = new Set(services.map((s) => s.category || 'Other'));
     return ['All', ...Array.from(set).sort()];
   }, [services]);
+
+  const categoriesOptions = allCategories?.length > 1 ? allCategories : fallbackCategories;
 
   // GSAP entrance
   useEffect(() => {
@@ -237,12 +253,15 @@ export default function Dashboard() {
               onChange={(e) => setQ(e.target.value)}
             />
             <select
-              className="rounded-xl border border-white/30 bg-white/20 text-white px-3 sm:px-4 py-3 outline-none focus:ring-2 focus:ring-white/70"
+              className="rounded-xl border border-white/30 bg-white/20 text-white px-3 sm:px-4 py-3 outline-none focus:ring-2 focus:ring-white/70 focus:bg-white focus:text-gray-900"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
+              title="Filter by category"
             >
-              {categories.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {categoriesOptions.map((c) => (
+                <option key={c} value={c} className="bg-white text-gray-900">
+                  {loadingCategories && c !== 'All' ? `${c} (loading…)` : c}
+                </option>
               ))}
             </select>
           </div>

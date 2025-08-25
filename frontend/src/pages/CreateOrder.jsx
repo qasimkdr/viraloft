@@ -1,3 +1,4 @@
+// frontend/src/pages/CreateOrder.jsx
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
@@ -28,7 +29,7 @@ const computeFallback = (svc, qtyRaw) => {
   const basePriceUSD = perItem ? baseRate * qty : baseRate * (qty / 1000);
   const commissionUSD = basePriceUSD * 0.20;
   const totalUSD = basePriceUSD + commissionUSD;
-  const perUnitUSD = totalUSD / qty;
+  const perUnitUSD = qty > 0 ? totalUSD / qty : 0;
 
   return {
     rateType: perItem ? 'per_item' : 'per_1000',
@@ -48,8 +49,11 @@ export default function CreateOrder() {
   const [searchParams] = useSearchParams();
   const preselectServiceId = searchParams.get('service');
 
-  const [services, setServices] = useState([]);
+  const [services, setServices] = useState([]);              // currently loaded services for the chosen category (+search)
   const [servicesLoading, setServicesLoading] = useState(true);
+
+  const [allCategories, setAllCategories] = useState([]);    // full category list (from all pages)
+  const [loadingCategories, setLoadingCategories] = useState(false);
 
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedId, setSelectedId] = useState('');
@@ -70,6 +74,10 @@ export default function CreateOrder() {
   const [preflight, setPreflight] = useState(null);
   const [placeErr, setPlaceErr] = useState(null); // {status, msg, vendor}
 
+  // When we find the preselected service across the paged scan, we stash its id here
+  // and apply it after the category list for that service is fetched.
+  const [preselectPendingId, setPreselectPendingId] = useState(null);
+
   const formRef = useRef(null);
   useEffect(() => {
     const el = formRef.current;
@@ -82,62 +90,121 @@ export default function CreateOrder() {
     return () => el.removeEventListener('keydown', handler);
   }, []);
 
+  // 1) Fetch ALL categories up-front (paged). Also try to locate preselected service id while scanning.
   useEffect(() => {
-    let ignore = false;
-    (async () => {
-      setServicesLoading(true);
+    let cancelled = false;
+
+    const fetchAllCategoriesAndMaybePreselect = async () => {
+      setLoadingCategories(true);
+      const seen = new Set();
+      const PAGE_LIMIT = 200;
+      let offset = 0;
+      let foundSvc = null;
+
       try {
-        const r = await api.get('/api/services', { params: { offset: 0, limit: 200, q: '' } });
-        if (!ignore) {
+        for (let loops = 0; loops < 100; loops++) {
+          const r = await api.get('/api/services', { params: { offset, limit: PAGE_LIMIT, q: '' } });
           const arr = Array.isArray(r.data) ? r.data : [];
-          setServices(arr);
-          if (preselectServiceId) {
-            const found = arr.find(s => String(s.service) === String(preselectServiceId));
-            if (found) {
-              setSelectedCategory(found.category || 'Other');
-              setSelectedId(String(found.service));
-              const minInit = Number(found.min || 1);
-              const maxInit = Number(found.max || 1000);
-              setServerBounds({ min: minInit, max: maxInit });
-              setQty(minInit > 0 ? minInit : 1);
-            }
+          for (const s of arr) {
+            seen.add(s.category || 'Other');
           }
+          if (preselectServiceId && !foundSvc) {
+            const hit = arr.find(s => String(s.service) === String(preselectServiceId));
+            if (hit) foundSvc = hit;
+          }
+          if (arr.length < PAGE_LIMIT) break;
+          offset += PAGE_LIMIT;
+        }
+
+        if (cancelled) return;
+        setAllCategories(Array.from(seen).filter(Boolean).sort());
+
+        // If a ?service= was provided and we found it, select its category now.
+        if (foundSvc) {
+          setSelectedCategory(foundSvc.category || 'Other');
+          setPreselectPendingId(String(foundSvc.service));
+          // We do NOT set bounds here; we’ll do it after the category’s services load.
         }
       } catch {
-        if (!ignore) setServices([]);
+        if (!cancelled) setAllCategories([]);
       } finally {
-        if (!ignore) setServicesLoading(false);
+        if (!cancelled) setLoadingCategories(false);
       }
-    })();
-    return () => { ignore = true; };
+    };
+
+    fetchAllCategoriesAndMaybePreselect();
+    return () => { cancelled = true; };
   }, [preselectServiceId]);
 
-  const categories = useMemo(() => {
-    const set = new Set((services || []).map(s => s.category || 'Other'));
-    return Array.from(set).sort();
+  // 2) Fetch services for the selected category (and optional search) with debounce; paged to get full list.
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      if (!selectedCategory) {
+        setServices([]);
+        setServicesLoading(false);
+        return;
+      }
+      setServicesLoading(true);
+      const PAGE_LIMIT = 200;
+      let offset = 0;
+      let list = [];
+
+      try {
+        for (let loops = 0; loops < 100; loops++) {
+          const params = { offset, limit: PAGE_LIMIT, category: selectedCategory };
+          if (query?.trim()) params.q = query.trim();
+          const r = await api.get('/api/services', { params });
+          const arr = Array.isArray(r.data) ? r.data : [];
+          list = list.concat(arr);
+          if (arr.length < PAGE_LIMIT) break;
+          offset += PAGE_LIMIT;
+        }
+        if (cancelled) return;
+        setServices(list);
+      } catch {
+        if (!cancelled) setServices([]);
+      } finally {
+        if (!cancelled) setServicesLoading(false);
+      }
+    }, 300);
+
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [selectedCategory, query]);
+
+  // If we had a pending preselect id, apply it once services for that category have loaded.
+  useEffect(() => {
+    if (!preselectPendingId || servicesLoading) return;
+    const found = services.find(s => String(s.service) === String(preselectPendingId));
+    if (found) {
+      setSelectedId(String(found.service));
+      const minInit = Number(found.min || 1);
+      const maxInit = Number(found.max || 1000);
+      setServerBounds({ min: minInit, max: maxInit });
+      setQty((old) => {
+        const n = Number(old || 0);
+        if (!Number.isFinite(n) || n < minInit) return minInit;
+        if (n > maxInit) return maxInit;
+        return n;
+      });
+      setPreselectPendingId(null);
+    }
+  }, [preselectPendingId, services, servicesLoading]);
+
+  // --- derive filtered list & selected service ---
+  const filteredServices = useMemo(() => {
+    // Services are already fetched according to selectedCategory & query.
+    return services || [];
   }, [services]);
 
-  const filteredByCategory = useMemo(() => {
-    if (!selectedCategory) return [];
-    return (services || []).filter(s => (s.category || 'Other') === selectedCategory);
-  }, [services, selectedCategory]);
-
-  const filteredServices = useMemo(() => {
-    if (!selectedCategory) return [];
-    if (!query.trim()) return filteredByCategory;
-    const q = query.toLowerCase();
-    return filteredByCategory.filter(s =>
-      (s.name || '').toLowerCase().includes(q) ||
-      String(s.service || '').includes(q)
-    );
-  }, [filteredByCategory, query, selectedCategory]);
-
   const selected = useMemo(
-    () => filteredServices.find(s => String(s.service) === String(selectedId)) ||
-          filteredByCategory.find(s => String(s.service) === String(selectedId)),
-    [filteredServices, filteredByCategory, selectedId]
+    () =>
+      filteredServices.find(s => String(s.service) === String(selectedId)) ||
+      services.find(s => String(s.service) === String(selectedId)),
+    [filteredServices, services, selectedId]
   );
 
+  // keep server bounds in sync with selected
   useEffect(() => {
     if (!selected) return;
     const nextMin = Number(selected.min || 1);
@@ -157,6 +224,7 @@ export default function CreateOrder() {
     return () => clearTimeout(t);
   }, [qty]);
 
+  // Live quote
   useEffect(() => {
     let cancelled = false;
     const fetchQuote = async () => {
@@ -254,8 +322,6 @@ export default function CreateOrder() {
       const status = err?.response?.status;
       const msg = err?.response?.data?.message || err?.message || 'Failed to place order';
       const vendor = err?.response?.data?.vendor || null;
-
-      // keep modal open and show exact reason
       setPlaceErr({ status, msg, vendor });
     } finally {
       setConfirming(false);
@@ -283,16 +349,16 @@ export default function CreateOrder() {
               {/* Category select */}
               <div className="lg:col-span-1">
                 <label className="block text-xs text-white/80 mb-1">Category</label>
-                {servicesLoading ? (
+                {loadingCategories ? (
                   <div className="h-[46px] rounded-xl bg-white/20 animate-pulse" />
                 ) : (
                   <select
                     value={selectedCategory}
                     onChange={(e) => { setSelectedCategory(e.target.value); setSelectedId(''); setQuery(''); }}
-                    className="w-full rounded-xl border border-white/30 bg-white/20 text-white px-4 py-3 outline-none focus:ring-2 focus:ring-white/70"
+                    className="w-full rounded-xl border border-white/30 bg-white/20 text-white px-4 py-3 outline-none focus:ring-2 focus:ring-white/70 focus:bg-white focus:text-gray-900"
                   >
                     <option value="" disabled className="bg-white text-gray-900">Select a category</option>
-                    {categories.map(cat => (
+                    {allCategories.map(cat => (
                       <option key={cat} value={cat} className="bg-white text-gray-900">{cat}</option>
                     ))}
                   </select>
@@ -524,7 +590,6 @@ export default function CreateOrder() {
                 <span className="font-semibold">{currency} {money(preflight.totalUSD, currency)}</span>
               </div>
 
-              {/* Failure reason panel (if placement fails) */}
               {placeErr && (
                 <div className="mt-3 rounded-xl border border-red-300 bg-red-100/80 text-red-800 px-3 py-2">
                   <div className="text-sm font-semibold">Failed to place order</div>

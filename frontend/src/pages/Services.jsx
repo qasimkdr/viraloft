@@ -2,15 +2,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import Navbar from '../components/Navbar';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
-// Simple currency helpers (public page shows PKR by default; change if you want)
+// Currency helpers (public page defaults to PKR, user can change)
 const FX = { USD: 1, PKR: 280, AED: 3.6725, EUR: 0.92 };
 const convertFromUSD = (usd, currency) => Number(usd || 0) * (FX[currency] || 1);
 const money = (usd, currency) =>
   convertFromUSD(usd, currency).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const PAGE_SIZE = 24;
+// Paging sizes
+const PAGE_SIZE = 24;     // for visible services (infinite scroll)
+const CATS_PAGE = 200;    // larger page size just for building full category list quickly
 
 const colorways = [
   'from-indigo-500/95 to-violet-500/95',
@@ -23,43 +25,86 @@ const colorways = [
   'from-purple-500/95 to-indigo-500/95',
 ];
 
-// Detect services that should be priced "per item" (not per 1k)
-const perItem = (svc) => {
+// Detect services that are priced per item (not per 1000)
+const isPerItem = (svc) => {
   const min = Number(svc.min || 0);
   const max = Number(svc.max || 0);
+  if (min === 1 && max === 1) return true;
   const t = String(svc.type || '').toLowerCase();
   const n = String(svc.name || '').toLowerCase();
   const c = String(svc.category || '').toLowerCase();
-  if ((min === 1 && max === 1)) return true;
   if ([t, n, c].some(s => s.includes('package') || s.includes('software') || s.includes('license'))) return true;
   return false;
 };
 
+// For a given service, compute the correct display USD rate (incl. +20% which backend already added into markupRate)
+// - if per item: markupRate is per 1000 → convert to per-unit by dividing by 1000
+// - else: show per-1000 directly
+const displayRateUSD = (svc) => {
+  const mr = Number(svc.markupRate || 0);
+  if (isPerItem(svc)) return mr / 1000;
+  return mr; // per 1k
+};
+
 export default function Services() {
+  const [currency, setCurrency] = useState('PKR');
+
+  // Full category list (loaded once by scanning pages)
+  const [categories, setCategories] = useState(['All']);
+  const [catsLoading, setCatsLoading] = useState(true);
+
+  // Current filters
+  const [category, setCategory] = useState('All');
+  const [q, setQ] = useState('');
+
+  // Services to display
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [endReached, setEndReached] = useState(false);
 
-  const [q, setQ] = useState('');
-  const [category, setCategory] = useState('All');
-  const [currency, setCurrency] = useState('PKR');
-
+  // infra
   const sentinelRef = useRef(null);
   const ioRef = useRef(null);
   const qDebounceRef = useRef(null);
 
-  const fetchPage = async (offset, query, cat) => {
-    const params = { offset, limit: PAGE_SIZE };
+  // ---------- API helpers ----------
+  const fetchServicesPage = async (offset, query, cat, pageSize = PAGE_SIZE) => {
+    const params = { offset, limit: pageSize };
     if (query) params.q = query;
     if (cat && cat !== 'All') params.category = cat;
-
-    // PUBLIC endpoint (no Authorization header)
     const res = await axios.get('/api/services/public', { params });
     return Array.isArray(res.data) ? res.data : [];
   };
 
-  // initial & search
+  // Build full category list up-front by scanning pages (independent of visible list)
+  useEffect(() => {
+    let cancelled = false;
+    const buildCategories = async () => {
+      setCatsLoading(true);
+      const seen = new Set();
+      let offset = 0;
+      try {
+        for (let loops = 0; loops < 200; loops++) {
+          const batch = await fetchServicesPage(offset, '', 'All', CATS_PAGE);
+          batch.forEach(s => seen.add(s.category || 'Other'));
+          if (batch.length < CATS_PAGE) break;
+          offset += CATS_PAGE;
+        }
+        if (cancelled) return;
+        const sorted = Array.from(seen).filter(Boolean).sort();
+        setCategories(['All', ...sorted]);
+      } catch {
+        if (!cancelled) setCategories(['All']); // fallback
+      } finally {
+        if (!cancelled) setCatsLoading(false);
+      }
+    };
+    buildCategories();
+    return () => { cancelled = true; };
+  }, []);
+
+  // initial load + debounced search
   useEffect(() => {
     if (qDebounceRef.current) clearTimeout(qDebounceRef.current);
     qDebounceRef.current = setTimeout(async () => {
@@ -67,7 +112,7 @@ export default function Services() {
       setEndReached(false);
       if (ioRef.current) { ioRef.current.disconnect(); ioRef.current = null; }
       try {
-        const first = await fetchPage(0, q, category);
+        const first = await fetchServicesPage(0, q, category);
         setServices(first);
         if (first.length < PAGE_SIZE) setEndReached(true);
       } catch {
@@ -79,30 +124,7 @@ export default function Services() {
     }, 300);
     return () => clearTimeout(qDebounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
-
-  // category change
-  useEffect(() => {
-    let ignore = false;
-    (async () => {
-      setLoading(true);
-      setEndReached(false);
-      if (ioRef.current) { ioRef.current.disconnect(); ioRef.current = null; }
-      try {
-        const first = await fetchPage(0, q, category);
-        if (!ignore) {
-          setServices(first);
-          if (first.length < PAGE_SIZE) setEndReached(true);
-        }
-      } catch {
-        if (!ignore) { setServices([]); setEndReached(true); }
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    })();
-    return () => { ignore = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
+  }, [q, category]);
 
   // infinite scroll
   useEffect(() => {
@@ -113,8 +135,8 @@ export default function Services() {
       if (entries[0].isIntersecting && !loadingMore && !endReached) {
         setLoadingMore(true);
         try {
-          const next = await fetchPage(services.length, q, category);
-          setServices((prev) => [...prev, ...next]);
+          const next = await fetchServicesPage(services.length, q, category);
+          setServices(prev => [...prev, ...next]);
           if (next.length < PAGE_SIZE) setEndReached(true);
         } catch { /* ignore */ }
         setLoadingMore(false);
@@ -126,10 +148,14 @@ export default function Services() {
     return () => { io.disconnect(); ioRef.current = null; };
   }, [services.length, loading, endReached, loadingMore, q, category]);
 
-  const categories = useMemo(() => {
+  // (Optional) derive visible categories from current list (kept for resilience if global load fails)
+  const derivedCategories = useMemo(() => {
     const set = new Set((services || []).map(s => s.category || 'Other'));
-    return ['All', ...Array.from(set).sort()];
-  }, [services]);
+    const arr = Array.from(set).sort();
+    // merge with global categories; ensure 'All' first
+    const merged = new Set(['All', ...categories.slice(1), ...arr]);
+    return Array.from(merged);
+  }, [services, categories]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 animate-gradient-x">
@@ -139,7 +165,7 @@ export default function Services() {
         <div className="mb-5 flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-4">
           <div className="flex-1">
             <h1 className="text-2xl sm:text-3xl font-bold text-white drop-shadow">Viraloft Services</h1>
-            <p className="text-white/90 text-sm">Public catalog </p>
+            <p className="text-white/90 text-sm">Public catalog</p>
           </div>
           <div className="flex items-center gap-2">
             <label className="text-white/90 text-sm">Currency</label>
@@ -148,7 +174,9 @@ export default function Services() {
               onChange={(e) => setCurrency(e.target.value)}
               className="rounded-xl border border-white/30 bg-white/20 text-white px-3 py-2 outline-none focus:ring-2 focus:ring-white/70"
             >
-              {['PKR','USD','AED','EUR'].map(c => <option key={c} value={c}>{c}</option>)}
+              {['PKR','USD','AED','EUR'].map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -163,12 +191,12 @@ export default function Services() {
             onChange={(e) => setQ(e.target.value)}
           />
           <select
-            className="rounded-xl border border-white/30 bg-white/20 text-white px-3 sm:px-4 py-3 outline-none focus:ring-2 focus:ring-white/70"
+            className="rounded-xl border border-white/30 bg-white/20 text-white px-3 sm:px-4 py-3 outline-none focus:ring-2 focus:ring-white/70 focus:bg-white focus:text-gray-900"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
-            {categories.map((c) => (
-              <option key={c} value={c}>{c}</option>
+            {(catsLoading ? ['All', ...derivedCategories.filter(c => c !== 'All')] : derivedCategories).map((c) => (
+              <option key={c} value={c} className="bg-white text-gray-900">{c}</option>
             ))}
           </select>
         </div>
@@ -185,22 +213,27 @@ export default function Services() {
             <ul className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
               {services.map((svc, i) => {
                 const color = colorways[i % colorways.length];
-                const label = perItem(svc) ? 'per item' : '/1k';
+                const perItem = isPerItem(svc);
+                const rateUSD = displayRateUSD(svc);
+                const label = perItem ? 'per item' : '/1k';
+
                 return (
                   <li key={svc.service} className="svc-card group">
                     <div className={`rounded-2xl p-4 sm:p-5 text-white shadow-sm hover:shadow-lg transition-all duration-300 bg-gradient-to-br ${color}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h4 className="text-base sm:text-lg font-semibold leading-snug wrap-anywhere line-clamp-2">
+                          <h4 className="text-base sm:text-lg font-semibold leading-snug break-words line-clamp-2">
                             {svc.name}
                           </h4>
-                          <p className="text-xs sm:text-sm opacity-90 wrap-anywhere">
+                          <p className="text-xs sm:text-sm opacity-90 break-words">
                             {(svc.category || 'Other')} • {svc.type || '—'}
                           </p>
                         </div>
-                        <span className="shrink-0 inline-flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-medium bg-white/20 backdrop-blur">
-                          {/* svc.markupRate is per 1k in USD; convert + format */}
-                          {currency} {money(svc.markupRate, currency)}{label}
+                        <span
+                          className="shrink-0 inline-flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-medium bg-white/20 backdrop-blur"
+                          title={`Rate (incl. 20%) ${label}`}
+                        >
+                          {currency} {money(rateUSD, currency)}{label}
                         </span>
                       </div>
 
@@ -226,7 +259,7 @@ export default function Services() {
                         >
                           Get Started
                         </Link>
-                        <span className="text-[10px] sm:text-[11px] opacity-75 wrap-anywhere">Commission included</span>
+                        <span className="text-[10px] sm:text-[11px] opacity-75 break-words">Commission included</span>
                       </div>
                     </div>
                   </li>
