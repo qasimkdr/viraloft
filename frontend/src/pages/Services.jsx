@@ -1,8 +1,8 @@
 // frontend/src/pages/Services.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import axios from 'axios';
 import Navbar from '../components/Navbar';
 import { Link } from 'react-router-dom';
+import httpPublic from '../lib/httpPublic';
 
 // Currency helpers (public page defaults to PKR, user can change)
 const FX = { USD: 1, PKR: 280, AED: 3.6725, EUR: 0.92 };
@@ -62,7 +62,6 @@ export default function Services() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [endReached, setEndReached] = useState(false);
-  const [error, setError] = useState('');
 
   // infra
   const sentinelRef = useRef(null);
@@ -70,26 +69,25 @@ export default function Services() {
   const qDebounceRef = useRef(null);
 
   // ---------- API helpers ----------
-  const fetchServicesPage = async (offset, query, cat, signal, pageSize = PAGE_SIZE) => {
+  const fetchServicesPage = async (offset, query, cat, pageSize = PAGE_SIZE) => {
     const params = { offset, limit: pageSize };
     if (query) params.q = query;
     if (cat && cat !== 'All') params.category = cat;
-    const res = await axios.get('/api/services/public', { params, signal });
+    // IMPORTANT: use httpPublic (points to VITE_API_BASE/api in production)
+    const res = await httpPublic.get('/services/public', { params });
     return Array.isArray(res.data) ? res.data : [];
   };
 
   // Build full category list up-front by scanning pages (independent of visible list)
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
-
     const buildCategories = async () => {
       setCatsLoading(true);
       const seen = new Set();
       let offset = 0;
       try {
         for (let loops = 0; loops < 200; loops++) {
-          const batch = await fetchServicesPage(offset, '', 'All', controller.signal, CATS_PAGE);
+          const batch = await fetchServicesPage(offset, '', 'All', CATS_PAGE);
           batch.forEach(s => seen.add(s.category || 'Other'));
           if (batch.length < CATS_PAGE) break;
           offset += CATS_PAGE;
@@ -97,50 +95,36 @@ export default function Services() {
         if (cancelled) return;
         const sorted = Array.from(seen).filter(Boolean).sort();
         setCategories(['All', ...sorted]);
-      } catch (e) {
-        if (!cancelled) {
-          console.error('Category build error:', e);
-          setCategories(['All']); // fallback
-        }
+      } catch {
+        if (!cancelled) setCategories(['All']); // fallback
       } finally {
         if (!cancelled) setCatsLoading(false);
       }
     };
-
     buildCategories();
-    return () => { cancelled = true; controller.abort(); };
+    return () => { cancelled = true; };
   }, []);
 
-  // initial load + debounced search/category
+  // initial load + debounced search + category change
   useEffect(() => {
-    const controller = new AbortController();
-
     if (qDebounceRef.current) clearTimeout(qDebounceRef.current);
     qDebounceRef.current = setTimeout(async () => {
       setLoading(true);
-      setError('');
       setEndReached(false);
       if (ioRef.current) { ioRef.current.disconnect(); ioRef.current = null; }
       try {
-        const first = await fetchServicesPage(0, q, category, controller.signal);
+        const first = await fetchServicesPage(0, q, category);
         setServices(first);
         if (first.length < PAGE_SIZE) setEndReached(true);
-      } catch (e) {
-        if (e.name !== 'CanceledError' && e.name !== 'AbortError') {
-          console.error('Services initial/search fetch error:', e);
-          setError(e?.response?.data?.message || e.message || 'Failed to fetch services');
-          setServices([]);
-          setEndReached(true);
-        }
+      } catch {
+        setServices([]);
+        setEndReached(true);
       } finally {
         setLoading(false);
       }
     }, 300);
-
-    return () => {
-      controller.abort();
-      clearTimeout(qDebounceRef.current);
-    };
+    return () => clearTimeout(qDebounceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, category]);
 
   // infinite scroll
@@ -148,34 +132,28 @@ export default function Services() {
     if (!sentinelRef.current || loading || endReached) return;
     if (ioRef.current) ioRef.current.disconnect();
 
-    const controller = new AbortController();
-
     const io = new IntersectionObserver(async (entries) => {
       if (entries[0].isIntersecting && !loadingMore && !endReached) {
         setLoadingMore(true);
         try {
-          const next = await fetchServicesPage(services.length, q, category, controller.signal);
+          const next = await fetchServicesPage(services.length, q, category);
           setServices(prev => [...prev, ...next]);
           if (next.length < PAGE_SIZE) setEndReached(true);
-        } catch (e) {
-          if (e.name !== 'CanceledError' && e.name !== 'AbortError') {
-            console.error('Services infinite fetch error:', e);
-            setEndReached(true);
-          }
-        }
+        } catch { /* ignore */ }
         setLoadingMore(false);
       }
     }, { rootMargin: '300px 0px 300px 0px' });
 
     io.observe(sentinelRef.current);
     ioRef.current = io;
-    return () => { controller.abort(); io.disconnect(); ioRef.current = null; };
+    return () => { io.disconnect(); ioRef.current = null; };
   }, [services.length, loading, endReached, loadingMore, q, category]);
 
-  // Merge global categories with any derived-from-current-page ones; keep "All" first
+  // (Optional) derive visible categories from current list (kept for resilience if global load fails)
   const derivedCategories = useMemo(() => {
     const set = new Set((services || []).map(s => s.category || 'Other'));
     const arr = Array.from(set).sort();
+    // merge with global categories; ensure 'All' first
     const merged = new Set(['All', ...categories.slice(1), ...arr]);
     return Array.from(merged);
   }, [services, categories]);
@@ -223,13 +201,6 @@ export default function Services() {
             ))}
           </select>
         </div>
-
-        {/* Error */}
-        {error && (
-          <div className="mb-4 rounded-xl border border-yellow-300 bg-yellow-100/80 text-yellow-900 px-3 py-2 text-sm">
-            {error}
-          </div>
-        )}
 
         {/* Grid */}
         {loading ? (
