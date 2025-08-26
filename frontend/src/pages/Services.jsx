@@ -38,11 +38,9 @@ const isPerItem = (svc) => {
 };
 
 // For a given service, compute the correct display USD rate (incl. +20% which backend already added into markupRate)
-// - if per item: markupRate is per 1000 → convert to per-unit by dividing by 1000
-// - else: show per-1000 directly
 const displayRateUSD = (svc) => {
   const mr = Number(svc.markupRate || 0);
-  if (isPerItem(svc)) return mr / 1000;
+  if (isPerItem(svc)) return mr / 1000; // convert per-1k to per-item
   return mr; // per 1k
 };
 
@@ -68,26 +66,34 @@ export default function Services() {
   const ioRef = useRef(null);
   const qDebounceRef = useRef(null);
 
+  // request abort controllers
+  const catsAbortRef = useRef(null);
+  const loadAbortRef = useRef(null);
+  const moreAbortRef = useRef(null);
+
   // ---------- API helpers ----------
-  const fetchServicesPage = async (offset, query, cat, pageSize = PAGE_SIZE) => {
+  const fetchServicesPage = async (offset, query, cat, pageSize = PAGE_SIZE, signal) => {
     const params = { offset, limit: pageSize };
     if (query) params.q = query;
     if (cat && cat !== 'All') params.category = cat;
-    // IMPORTANT: use httpPublic (points to VITE_API_BASE/api in production)
-    const res = await httpPublic.get('/services/public', { params });
+    const res = await httpPublic.get('/services/public', { params, signal });
     return Array.isArray(res.data) ? res.data : [];
   };
 
   // Build full category list up-front by scanning pages (independent of visible list)
   useEffect(() => {
     let cancelled = false;
+    catsAbortRef.current?.abort();
+    const controller = new AbortController();
+    catsAbortRef.current = controller;
+
     const buildCategories = async () => {
       setCatsLoading(true);
       const seen = new Set();
       let offset = 0;
       try {
         for (let loops = 0; loops < 200; loops++) {
-          const batch = await fetchServicesPage(offset, '', 'All', CATS_PAGE);
+          const batch = await fetchServicesPage(offset, '', 'All', CATS_PAGE, controller.signal);
           batch.forEach(s => seen.add(s.category || 'Other'));
           if (batch.length < CATS_PAGE) break;
           offset += CATS_PAGE;
@@ -102,7 +108,8 @@ export default function Services() {
       }
     };
     buildCategories();
-    return () => { cancelled = true; };
+
+    return () => { cancelled = true; controller.abort(); };
   }, []);
 
   // initial load + debounced search + category change
@@ -111,20 +118,27 @@ export default function Services() {
     qDebounceRef.current = setTimeout(async () => {
       setLoading(true);
       setEndReached(false);
+      // stop any observers and in-flight requests
       if (ioRef.current) { ioRef.current.disconnect(); ioRef.current = null; }
+      loadAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
+
       try {
-        const first = await fetchServicesPage(0, q, category);
+        const first = await fetchServicesPage(0, q, category, PAGE_SIZE, controller.signal);
         setServices(first);
         if (first.length < PAGE_SIZE) setEndReached(true);
-      } catch {
-        setServices([]);
-        setEndReached(true);
+      } catch (e) {
+        if (e?.name !== 'CanceledError' && e?.name !== 'AbortError') {
+          setServices([]);
+          setEndReached(true);
+        }
       } finally {
         setLoading(false);
       }
     }, 300);
+
     return () => clearTimeout(qDebounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, category]);
 
   // infinite scroll
@@ -135,17 +149,25 @@ export default function Services() {
     const io = new IntersectionObserver(async (entries) => {
       if (entries[0].isIntersecting && !loadingMore && !endReached) {
         setLoadingMore(true);
+        moreAbortRef.current?.abort();
+        const controller = new AbortController();
+        moreAbortRef.current = controller;
+
         try {
-          const next = await fetchServicesPage(services.length, q, category);
+          const next = await fetchServicesPage(services.length, q, category, PAGE_SIZE, controller.signal);
           setServices(prev => [...prev, ...next]);
           if (next.length < PAGE_SIZE) setEndReached(true);
-        } catch { /* ignore */ }
-        setLoadingMore(false);
+        } catch {
+          // ignore
+        } finally {
+          setLoadingMore(false);
+        }
       }
     }, { rootMargin: '300px 0px 300px 0px' });
 
     io.observe(sentinelRef.current);
     ioRef.current = io;
+
     return () => { io.disconnect(); ioRef.current = null; };
   }, [services.length, loading, endReached, loadingMore, q, category]);
 
@@ -219,7 +241,7 @@ export default function Services() {
                 const label = perItem ? 'per item' : '/1k';
 
                 return (
-                  <li key={svc.service} className="svc-card group">
+                  <li key={svc.service ?? `${svc.name}-${i}`} className="svc-card group">
                     <div className={`rounded-2xl p-4 sm:p-5 text-white shadow-sm hover:shadow-lg transition-all duration-300 bg-gradient-to-br ${color}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -234,7 +256,7 @@ export default function Services() {
                           className="shrink-0 inline-flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-medium bg-white/20 backdrop-blur"
                           title={`Rate (incl. 20%) ${label}`}
                         >
-                          {currency} {money(rateUSD, currency)}{label}
+                          {currency} {money(rateUSD, currency)} {label}
                         </span>
                       </div>
 
