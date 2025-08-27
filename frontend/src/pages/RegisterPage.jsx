@@ -4,7 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import gsap from 'gsap';
 import Navbar from '../components/Navbar';
 import { AuthContext } from '../context/AuthContext';
-import api from '../lib/api'; // for any extra calls if needed (kept for completeness)
+import api from '../lib/api'; // ✅ shared client (adds /api prefix + uses VITE_API_BASE)
 
 // --- Floating badges (same vibe as LoginPage) ---
 const badgesSeed = [
@@ -27,7 +27,7 @@ function compact(n) {
 
 export default function RegisterPage() {
   const navigate = useNavigate();
-  const { register } = useContext(AuthContext); // ✅ use context helper wired to api
+  useContext(AuthContext); // keep import for parity; not used here
 
   const [form, setForm] = useState({ username: '', email: '', password: '' });
   const [message, setMessage] = useState('');
@@ -70,14 +70,20 @@ export default function RegisterPage() {
     setMessage('');
     setSubmitting(true);
     try {
-      // ✅ Use AuthContext.register -> internally calls api.post('/api/auth/register', {...})
-      const res = await register(form.username.trim(), form.email.trim(), form.password);
-      const msg = res?.message || 'Registration successful. Please verify your email.';
+      const payload = {
+        username: form.username.trim(),
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+      };
+
+      // ✅ call backend directly via shared client (works in prod)
+      const res = await api.post('/auth/register', payload);
+
+      const msg = res?.data?.message || 'Registration successful. Please verify your email.';
       setMessage(msg);
 
-      // Backend requires email verification before login.
-      // Go to /verify-email and prefill email in the query string.
-      navigate(`/verify-email?email=${encodeURIComponent(form.email.trim())}`, { replace: true });
+      // Backend requires email verification before login
+      navigate(`/verify-email?email=${encodeURIComponent(payload.email)}`, { replace: true });
     } catch (err) {
       setMessage(err?.response?.data?.message || 'Registration failed');
     } finally {
@@ -192,4 +198,4 @@ function Badge({ label, value, grad, Icon }) {
 function TikTokIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M16.5 3v10a4.5 4.5 0 1 1-7.5 3.5 4.5 4.5 0 0 1 4.5-4.5V7.25c1.2 1.05 2.73 1.73 4.5 1.73V6.25a5.73 5.73 0 0 1-4.5-1.98Z"/></svg>; }
 function InstagramIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path fillRule="evenodd" d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm5 4a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm6.5.5a1 1 0 1 0-2 0v1a1 1 0 1 0 2 0v-1Z" clipRule="evenodd"/></svg>; }
 function FacebookIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M13 3h3v3h-3v2.5h3V12h-3v9h-3v-9H7.5v-3H10V7.78C10 5.24 11.33 4 13.6 4 14.5 4 15 4.24 15 5.25V6h-2V3Z"/></svg>; }
-function YouTubeIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M21.58 7.19A3 3 0 0 0 19.5 5.2C17.47 5 12 5 12 5s-5.47 0-7.5.2A3 3 0 0 0 2.42 7.19 31 31 0 0 0 2.2 12a31 31 0 0 0 .22 4.81 3 3 0 0 0 2.08 1.99C6.53 19 12 19 12 19s5.47 0 7.5-.2a3 3 0 0 0 2.08-1.99A31 31 0 0 0 21.8 12a31 31 0 0 0-.22-4.81ZM10 15.18V8.82L15.5 12 10 15.18Z"/></svg>; }
+function YouTubeIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M21.58 7.19A3 3 0 0 0 19.5 5.2C17.47 5 12 5 12 5s-6.97 0-8.48.52A3 3 0 0 0 2.42 7.19 31 31 0 0 0 2.2 12a31 31 0 0 0 .22 4.81 3 3 0 0 0 2.08 1.99C6.53 19 12 19 12 19s5.47 0 7.5-.2a3 3 0 0 0 2.08-1.99A31 31 0 0 0 21.8 12a31 31 0 0 0-.22-4.81ZM10 15.18V8.82L15.5 12 10 15.18Z"/></svg>; }
