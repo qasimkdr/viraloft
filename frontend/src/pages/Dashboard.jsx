@@ -1,10 +1,10 @@
 // frontend/src/pages/Dashboard.jsx
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import axios from 'axios';
 import gsap from 'gsap';
 import { AuthContext } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import { useNavigate } from 'react-router-dom';
+import api from '../lib/api'; // ✅ use shared client (works in dev & prod)
 
 const PAGE_SIZE = 20;
 
@@ -81,7 +81,7 @@ export default function Dashboard() {
     const params = { offset, limit: PAGE_SIZE, q: query || '' };
     if (cat && cat !== 'All') params.category = cat;
 
-    const res = await axios.get('/api/services', {
+    const res = await api.get('/api/services', {   // ✅ use shared client + absolute /api path
       headers: { Authorization: `Bearer ${token}` },
       params,
     });
@@ -104,7 +104,7 @@ export default function Dashboard() {
 
       try {
         while (loops < MAX_LOOPS) {
-          const r = await axios.get('/api/services', {
+          const r = await api.get('/api/services', {   // ✅ shared client
             headers: { Authorization: `Bearer ${token}` },
             params: { offset, limit: PAGE_LIMIT, q: '' },
           });
