@@ -1,7 +1,8 @@
+// frontend/src/pages/OrdersPage.jsx
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
 import Navbar from "../components/Navbar";
 import { AuthContext } from "../context/AuthContext";
+import api from "../lib/api"; // ✅ use shared client (dev & prod)
 
 // --- Currency helpers ---
 const FX = { USD: 1, PKR: 280, AED: 3.6725, EUR: 0.92 };
@@ -52,23 +53,36 @@ export default function OrdersPage() {
   const ordersRef = useRef([]);
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
-  const authHeader = { Authorization: `Bearer ${token}` };
+  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
 
-  // fetch page
+  // fetch page (ALWAYS return an array)
   const fetchPage = async (pageNo) => {
-    const r = await axios.get("/api/orders", {
+    const r = await api.get("/api/orders", {
       headers: authHeader,
       params: { page: pageNo, limit },
     });
-    const items = Array.isArray(r.data?.items) ? r.data.items : r.data || [];
-    const more =
-      typeof r.data?.hasMore === "boolean" ? r.data.hasMore : items.length === limit;
+
+    const data = r?.data;
+    const items = Array.isArray(data?.items)
+      ? data.items
+      : (Array.isArray(data) ? data : []);  // ✅ never assign an object to orders
+
+    const more = typeof data?.hasMore === "boolean"
+      ? data.hasMore
+      : (items.length === limit);
+
     return { items, more };
   };
 
   // initial load
   useEffect(() => {
     let mounted = true;
+    if (!token) { // ✅ don't call API without token
+      setOrders([]);
+      setHasMore(false);
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         setLoading(true);
@@ -86,7 +100,6 @@ export default function OrdersPage() {
       }
     })();
     return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // load more
@@ -95,7 +108,7 @@ export default function OrdersPage() {
     try {
       setLoadingMore(true);
       const { items, more } = await fetchPage(page + 1);
-      setOrders((prev) => [...prev, ...items]);
+      setOrders((prev) => [...prev, ...items]); // items is guaranteed array
       setHasMore(more);
       setPage((p) => p + 1);
       // refresh statuses for the newly added ones
@@ -110,20 +123,21 @@ export default function OrdersPage() {
   // ---- Live status refresh (batch) ----
   const refreshStatuses = async () => {
     if (!token) return;
+    const list = Array.isArray(ordersRef.current) ? ordersRef.current : [];
     // Only poll non-terminal ones with a vendor id
-    const targets = ordersRef.current.filter(
+    const targets = list.filter(
       (o) => o.apiOrderId && !isTerminal(o.status)
     );
     if (targets.length === 0) return;
 
     try {
       const ids = targets.map((o) => String(o.apiOrderId));
-      const { data } = await axios.post(
+      const { data } = await api.post(
         "/api/orders/status/batch",
         { ids },
         { headers: authHeader }
       );
-      const map = data?.results || {};
+      const map = data?.results && typeof data.results === 'object' ? data.results : {};
       if (Object.keys(map).length === 0) return;
 
       setOrders((prev) =>
@@ -152,13 +166,13 @@ export default function OrdersPage() {
     };
     start();
     return () => { if (timer) clearInterval(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // client-side filter
   const filtered = useMemo(() => {
+    const arr = Array.isArray(orders) ? orders : []; // ✅ guard
     const qn = q.trim().toLowerCase();
-    return orders.filter((o) => {
+    return arr.filter((o) => {
       const matchesQ =
         !qn ||
         String(o.serviceName || "").toLowerCase().includes(qn) ||
