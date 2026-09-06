@@ -13,6 +13,7 @@ const memberLinks = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/orders', label: 'Orders' },
   { to: '/create-order', label: 'New Order' },
+  { to: '/add-balance', label: 'Add Balance' },
   { to: '/support', label: 'Support' },
 ];
 
