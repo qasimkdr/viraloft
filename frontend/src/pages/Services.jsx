@@ -1,303 +1,212 @@
-// frontend/src/pages/Services.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Navbar from '../components/Navbar';
 import { Link } from 'react-router-dom';
+import Navbar from '../components/Navbar';
+import Footer from '../components/Footer';
 import httpPublic from '../lib/httpPublic';
 
-// Currency helpers (public page defaults to PKR, user can change)
 const FX = { USD: 1, PKR: 280, AED: 3.6725, EUR: 0.92 };
+const PAGE_SIZE = 24;
+const CATS_PAGE = 200;
+
 const convertFromUSD = (usd, currency) => Number(usd || 0) * (FX[currency] || 1);
-const money = (usd, currency) =>
-  convertFromUSD(usd, currency).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (usd, currency) => convertFromUSD(usd, currency).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Paging sizes
-const PAGE_SIZE = 24;     // for visible services (infinite scroll)
-const CATS_PAGE = 200;    // larger page size just for building full category list quickly
-
-const colorways = [
-  'from-indigo-500/95 to-violet-500/95',
-  'from-emerald-500/95 to-teal-500/95',
-  'from-sky-500/95 to-blue-600/95',
-  'from-fuchsia-500/95 to-pink-500/95',
-  'from-amber-500/95 to-orange-500/95',
-  'from-cyan-500/95 to-sky-500/95',
-  'from-rose-500/95 to-red-500/95',
-  'from-purple-500/95 to-indigo-500/95',
-];
-
-// Detect services that are priced per item (not per 1000)
-const isPerItem = (svc) => {
-  const min = Number(svc.min || 0);
-  const max = Number(svc.max || 0);
+const isPerItem = (service) => {
+  const min = Number(service?.min || 0);
+  const max = Number(service?.max || 0);
   if (min === 1 && max === 1) return true;
-  const t = String(svc.type || '').toLowerCase();
-  const n = String(svc.name || '').toLowerCase();
-  const c = String(svc.category || '').toLowerCase();
-  if ([t, n, c].some(s => s.includes('package') || s.includes('software') || s.includes('license'))) return true;
-  return false;
+  const haystack = [service?.type, service?.name, service?.category].join(' ').toLowerCase();
+  return ['package', 'software', 'license'].some((word) => haystack.includes(word));
 };
 
-// For a given service, compute the correct display USD rate (incl. +20% which backend already added into markupRate)
-const displayRateUSD = (svc) => {
-  const mr = Number(svc.markupRate || 0);
-  if (isPerItem(svc)) return mr / 1000; // convert per-1k to per-item
-  return mr; // per 1k
+const displayRateUSD = (service) => {
+  const markupRate = Number(service?.markupRate || 0);
+  return isPerItem(service) ? markupRate / 1000 : markupRate;
 };
 
 export default function Services() {
   const [currency, setCurrency] = useState('PKR');
-
-  // Full category list (loaded once by scanning pages)
   const [categories, setCategories] = useState(['All']);
-  const [catsLoading, setCatsLoading] = useState(true);
-
-  // Current filters
   const [category, setCategory] = useState('All');
   const [q, setQ] = useState('');
-
-  // Services to display
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [endReached, setEndReached] = useState(false);
 
-  // infra
   const sentinelRef = useRef(null);
   const ioRef = useRef(null);
-  const qDebounceRef = useRef(null);
-
-  // request abort controllers
+  const debounceRef = useRef(null);
   const catsAbortRef = useRef(null);
   const loadAbortRef = useRef(null);
   const moreAbortRef = useRef(null);
 
-  // ---------- API helpers ----------
-  const fetchServicesPage = async (offset, query, cat, pageSize = PAGE_SIZE, signal) => {
-    const params = { offset, limit: pageSize };
+  const fetchPage = async (offset, query, cat, limit = PAGE_SIZE, signal) => {
+    const params = { offset, limit };
     if (query) params.q = query;
     if (cat && cat !== 'All') params.category = cat;
-    const res = await httpPublic.get('/services/public', { params, signal });
-    return Array.isArray(res.data) ? res.data : [];
+    const response = await httpPublic.get('/services/public', { params, signal });
+    return Array.isArray(response.data) ? response.data : [];
   };
 
-  // Build full category list up-front by scanning pages (independent of visible list)
   useEffect(() => {
-    let cancelled = false;
     catsAbortRef.current?.abort();
     const controller = new AbortController();
     catsAbortRef.current = controller;
+    let mounted = true;
 
-    const buildCategories = async () => {
-      setCatsLoading(true);
+    (async () => {
       const seen = new Set();
       let offset = 0;
       try {
-        for (let loops = 0; loops < 200; loops++) {
-          const batch = await fetchServicesPage(offset, '', 'All', CATS_PAGE, controller.signal);
-          batch.forEach(s => seen.add(s.category || 'Other'));
+        for (let loop = 0; loop < 100; loop += 1) {
+          const batch = await fetchPage(offset, '', 'All', CATS_PAGE, controller.signal);
+          batch.forEach((service) => seen.add(service.category || 'Other'));
           if (batch.length < CATS_PAGE) break;
           offset += CATS_PAGE;
         }
-        if (cancelled) return;
-        const sorted = Array.from(seen).filter(Boolean).sort();
-        setCategories(['All', ...sorted]);
+        if (mounted) setCategories(['All', ...Array.from(seen).filter(Boolean).sort()]);
       } catch {
-        if (!cancelled) setCategories(['All']); // fallback
-      } finally {
-        if (!cancelled) setCatsLoading(false);
+        if (mounted) setCategories(['All']);
       }
-    };
-    buildCategories();
+    })();
 
-    return () => { cancelled = true; controller.abort(); };
+    return () => { mounted = false; controller.abort(); };
   }, []);
 
-  // initial load + debounced search + category change
   useEffect(() => {
-    if (qDebounceRef.current) clearTimeout(qDebounceRef.current);
-    qDebounceRef.current = setTimeout(async () => {
-      setLoading(true);
-      setEndReached(false);
-      // stop any observers and in-flight requests
-      if (ioRef.current) { ioRef.current.disconnect(); ioRef.current = null; }
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      if (ioRef.current) ioRef.current.disconnect();
       loadAbortRef.current?.abort();
       const controller = new AbortController();
       loadAbortRef.current = controller;
-
+      setLoading(true);
+      setEndReached(false);
       try {
-        const first = await fetchServicesPage(0, q, category, PAGE_SIZE, controller.signal);
+        const first = await fetchPage(0, q, category, PAGE_SIZE, controller.signal);
         setServices(first);
-        if (first.length < PAGE_SIZE) setEndReached(true);
-      } catch (e) {
-        if (e?.name !== 'CanceledError' && e?.name !== 'AbortError') {
+        setEndReached(first.length < PAGE_SIZE);
+      } catch (error) {
+        if (error?.name !== 'CanceledError' && error?.name !== 'AbortError') {
           setServices([]);
           setEndReached(true);
         }
       } finally {
         setLoading(false);
       }
-    }, 300);
+    }, 280);
 
-    return () => clearTimeout(qDebounceRef.current);
+    return () => clearTimeout(debounceRef.current);
   }, [q, category]);
 
-  // infinite scroll
   useEffect(() => {
-    if (!sentinelRef.current || loading || endReached) return;
-    if (ioRef.current) ioRef.current.disconnect();
+    if (!sentinelRef.current || loading || endReached) return undefined;
+    ioRef.current?.disconnect();
 
-    const io = new IntersectionObserver(async (entries) => {
-      if (entries[0].isIntersecting && !loadingMore && !endReached) {
-        setLoadingMore(true);
-        moreAbortRef.current?.abort();
-        const controller = new AbortController();
-        moreAbortRef.current = controller;
-
-        try {
-          const next = await fetchServicesPage(services.length, q, category, PAGE_SIZE, controller.signal);
-          setServices(prev => [...prev, ...next]);
-          if (next.length < PAGE_SIZE) setEndReached(true);
-        } catch {
-          // ignore
-        } finally {
-          setLoadingMore(false);
-        }
+    const observer = new IntersectionObserver(async ([entry]) => {
+      if (!entry.isIntersecting || loadingMore || endReached) return;
+      setLoadingMore(true);
+      moreAbortRef.current?.abort();
+      const controller = new AbortController();
+      moreAbortRef.current = controller;
+      try {
+        const next = await fetchPage(services.length, q, category, PAGE_SIZE, controller.signal);
+        setServices((current) => [...current, ...next]);
+        if (next.length < PAGE_SIZE) setEndReached(true);
+      } catch {
+        // A canceled load-more request does not need user-facing error UI.
+      } finally {
+        setLoadingMore(false);
       }
-    }, { rootMargin: '300px 0px 300px 0px' });
+    }, { rootMargin: '320px 0px' });
 
-    io.observe(sentinelRef.current);
-    ioRef.current = io;
+    observer.observe(sentinelRef.current);
+    ioRef.current = observer;
+    return () => observer.disconnect();
+  }, [services.length, loading, loadingMore, endReached, q, category]);
 
-    return () => { io.disconnect(); ioRef.current = null; };
-  }, [services.length, loading, endReached, loadingMore, q, category]);
-
-  // (Optional) derive visible categories from current list (kept for resilience if global load fails)
-  const derivedCategories = useMemo(() => {
-    const set = new Set((services || []).map(s => s.category || 'Other'));
-    const arr = Array.from(set).sort();
-    // merge with global categories; ensure 'All' first
-    const merged = new Set(['All', ...categories.slice(1), ...arr]);
-    return Array.from(merged);
-  }, [services, categories]);
+  const categoryOptions = useMemo(() => {
+    const visible = services.map((service) => service.category || 'Other');
+    return Array.from(new Set(['All', ...categories.slice(1), ...visible]));
+  }, [categories, services]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 animate-gradient-x">
+    <div className="min-h-screen bg-[#060914] text-slate-100">
       <Navbar />
-
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-6">
-        <div className="mb-5 flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-4">
-          <div className="flex-1">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white drop-shadow">Viraloft Services</h1>
-            <p className="text-white/90 text-sm">Public catalog</p>
+      <main>
+        <section className="border-b border-white/10 px-4 py-14 sm:px-6 sm:py-20">
+          <div className="mx-auto max-w-7xl">
+            <div className="max-w-3xl">
+              <span className="eyebrow">Public service catalog</span>
+              <h1 className="mt-4 text-4xl font-bold tracking-[-.045em] text-white sm:text-6xl">Explore available Viraloft services.</h1>
+              <p className="mt-5 max-w-2xl text-base leading-8 text-slate-400 sm:text-lg">
+                Search the live catalog, compare service limits and review displayed pricing before creating an account and placing an order.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-white/90 text-sm">Currency</label>
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="rounded-xl border border-white/30 bg-white/20 text-white px-3 py-2 outline-none focus:ring-2 focus:ring-white/70"
-            >
-              {['PKR','USD','AED','EUR'].map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+        </section>
 
-        {/* Filters */}
-        <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-          <input
-            type="text"
-            className="col-span-1 sm:col-span-2 rounded-xl border border-white/30 bg-white/20 text-white placeholder-white/80 px-3 sm:px-4 py-3 outline-none focus:ring-2 focus:ring-white/70"
-            placeholder="Search services…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          <select
-            className="rounded-xl border border-white/30 bg-white/20 text-white px-3 sm:px-4 py-3 outline-none focus:ring-2 focus:ring-white/70 focus:bg-white focus:text-gray-900"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            {(catsLoading ? ['All', ...derivedCategories.filter(c => c !== 'All')] : derivedCategories).map((c) => (
-              <option key={c} value={c} className="bg-white text-gray-900">{c}</option>
-            ))}
-          </select>
-        </div>
+        <section className="px-4 py-8 sm:px-6 sm:py-10">
+          <div className="mx-auto max-w-7xl">
+            <div className="glass-3d mb-8 grid gap-3 rounded-2xl p-3 sm:grid-cols-[1fr_240px_150px] sm:p-4">
+              <label className="sr-only" htmlFor="service-search">Search services</label>
+              <input
+                id="service-search"
+                type="search"
+                className="h-12 rounded-xl border border-white/10 bg-black/20 px-4 text-white outline-none placeholder:text-slate-500 focus:border-indigo-400"
+                placeholder="Search by service, platform or category…"
+                value={q}
+                onChange={(event) => setQ(event.target.value)}
+              />
+              <label className="sr-only" htmlFor="service-category">Category</label>
+              <select id="service-category" value={category} onChange={(event) => setCategory(event.target.value)} className="h-12 rounded-xl border border-white/10 bg-[#0b1220] px-4 text-white outline-none focus:border-indigo-400">
+                {categoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <label className="sr-only" htmlFor="service-currency">Currency</label>
+              <select id="service-currency" value={currency} onChange={(event) => setCurrency(event.target.value)} className="h-12 rounded-xl border border-white/10 bg-[#0b1220] px-4 text-white outline-none focus:border-indigo-400">
+                {['PKR', 'USD', 'AED', 'EUR'].map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </div>
 
-        {/* Grid */}
-        {loading ? (
-          <div className="h-40 grid place-items-center">
-            <div className="animate-pulse text-white/90">Loading services…</div>
-          </div>
-        ) : services.length === 0 ? (
-          <div className="text-white/90">No services found.</div>
-        ) : (
-          <>
-            <ul className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
-              {services.map((svc, i) => {
-                const color = colorways[i % colorways.length];
-                const perItem = isPerItem(svc);
-                const rateUSD = displayRateUSD(svc);
-                const label = perItem ? 'per item' : '/1k';
-
-                return (
-                  <li key={svc.service ?? `${svc.name}-${i}`} className="svc-card group">
-                    <div className={`rounded-2xl p-4 sm:p-5 text-white shadow-sm hover:shadow-lg transition-all duration-300 bg-gradient-to-br ${color}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h4 className="text-base sm:text-lg font-semibold leading-snug break-words line-clamp-2">
-                            {svc.name}
-                          </h4>
-                          <p className="text-xs sm:text-sm opacity-90 break-words">
-                            {(svc.category || 'Other')} • {svc.type || '—'}
-                          </p>
+            {loading ? (
+              <div className="grid min-h-52 place-items-center rounded-2xl border border-white/10 bg-white/[.025] text-slate-400">Loading services…</div>
+            ) : services.length === 0 ? (
+              <div className="grid min-h-52 place-items-center rounded-2xl border border-white/10 bg-white/[.025] px-6 text-center text-slate-400">No services match your search.</div>
+            ) : (
+              <>
+                <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {services.map((service, index) => {
+                    const perItem = isPerItem(service);
+                    const rate = displayRateUSD(service);
+                    return (
+                      <li key={service.service ?? `${service.name}-${index}`} className="interactive-3d flex min-h-72 flex-col rounded-2xl border border-white/10 bg-gradient-to-br from-[#101a30] to-[#0a1020] p-5 shadow-xl shadow-black/10">
+                        <div className="mb-5 flex items-start justify-between gap-3">
+                          <span className="rounded-lg border border-indigo-400/20 bg-indigo-400/10 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[.12em] text-indigo-200">{service.category || 'Other'}</span>
+                          <span className="text-[11px] font-semibold text-slate-500">ID {service.service}</span>
                         </div>
-                        <span
-                          className="shrink-0 inline-flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-medium bg-white/20 backdrop-blur"
-                          title={`Rate (incl. 20%) ${label}`}
-                        >
-                          {currency} {money(rateUSD, currency)} {label}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 sm:mt-4 grid grid-cols-3 gap-2 text-xs sm:text-sm">
-                        <div className="rounded-xl bg-white/20 backdrop-blur p-2">
-                          <p className="text-[10px] sm:text-[11px] uppercase opacity-80">Min</p>
-                          <p className="font-semibold">{svc.min}</p>
+                        <h2 className="text-lg font-semibold leading-7 text-white">{service.name}</h2>
+                        <p className="mt-2 text-sm text-slate-400">{service.type || 'Standard service'}</p>
+                        <div className="mt-5 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl border border-white/10 bg-black/15 p-3"><span className="block text-[10px] uppercase tracking-wider text-slate-500">Minimum</span><strong className="mt-1 block text-sm text-white">{service.min}</strong></div>
+                          <div className="rounded-xl border border-white/10 bg-black/15 p-3"><span className="block text-[10px] uppercase tracking-wider text-slate-500">Maximum</span><strong className="mt-1 block text-sm text-white">{service.max}</strong></div>
                         </div>
-                        <div className="rounded-xl bg-white/20 backdrop-blur p-2">
-                          <p className="text-[10px] sm:text-[11px] uppercase opacity-80">Max</p>
-                          <p className="font-semibold">{svc.max}</p>
+                        <div className="mt-auto pt-5">
+                          <div className="mb-3 flex items-end justify-between gap-2"><span className="text-xs text-slate-500">Displayed rate</span><strong className="text-base text-white">{currency} {money(rate, currency)} <small className="font-medium text-slate-500">{perItem ? '/unit' : '/1k'}</small></strong></div>
+                          <Link to="/register" className="flex h-11 items-center justify-center rounded-xl bg-indigo-500 px-4 text-sm font-bold text-white transition hover:bg-indigo-400">Create account to order</Link>
                         </div>
-                        <div className="rounded-xl bg-white/20 backdrop-blur p-2 text-center">
-                          <p className="text-[10px] sm:text-[11px] uppercase opacity-80">ID</p>
-                          <p className="font-semibold">{svc.service}</p>
-                        </div>
-                      </div>
+                      </li>
+                    );
+                  })}
+                </ul>
 
-                      <div className="mt-3 sm:mt-4 flex items-center justify-between">
-                        <Link
-                          to="/register"
-                          className="inline-flex items-center justify-center h-9 sm:h-10 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-medium bg-white/20 backdrop-blur hover:bg-white/30 transition"
-                        >
-                          Get Started
-                        </Link>
-                        <span className="text-[10px] sm:text-[11px] opacity-75 break-words">Commission included</span>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-
-            {!endReached && (
-              <div ref={sentinelRef} className="py-6 sm:py-8 text-center text-xs sm:text-sm text-white/90">
-                {loadingMore ? 'Loading more…' : 'Scroll to load more'}
-              </div>
+                {!endReached && <div ref={sentinelRef} className="py-10 text-center text-sm text-slate-500">{loadingMore ? 'Loading more services…' : 'More services load as you scroll'}</div>}
+              </>
             )}
-          </>
-        )}
-      </div>
+          </div>
+        </section>
+      </main>
+      <Footer />
     </div>
   );
 }
