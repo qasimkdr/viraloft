@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /staff
+Disallow: /dashboard
+Disallow: /orders
+Disallow: /create-order
+Sitemap: https://viraloft-1.onrender.com/sitemap.xml

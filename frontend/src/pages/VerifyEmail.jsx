@@ -1,137 +1,151 @@
-// frontend/src/pages/VerifyEmail.jsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import Navbar from '../components/Navbar';
 import api from '../lib/api';
 
 export default function VerifyEmail() {
-  const [email, setEmail] = useState('');
+  const [searchParams] = useSearchParams();
+  const [email, setEmail] = useState(() => searchParams.get('email') || '');
   const [code, setCode] = useState('');
-  const [msg, setMsg] = useState('');
+  const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('');
   const [loading, setLoading] = useState(false);
-  const [cooldown, setCooldown] = useState(60); // 60s cooldown
+  const [cooldown, setCooldown] = useState(60);
   const navigate = useNavigate();
 
-  const cdLabel = useMemo(() => {
-    const mm = String(Math.floor(cooldown / 60)).padStart(2, '0');
-    const ss = String(cooldown % 60).padStart(2, '0');
-    return `${mm}:${ss}`;
+  const cooldownLabel = useMemo(() => {
+    const minutes = String(Math.floor(cooldown / 60)).padStart(2, '0');
+    const seconds = String(cooldown % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
   }, [cooldown]);
 
   useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setInterval(() => setCooldown((c) => c - 1), 1000);
-    return () => clearInterval(t);
+    if (cooldown <= 0) return undefined;
+    const timer = setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
   }, [cooldown]);
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    setMsg('');
+  const handleVerify = async (event) => {
+    event.preventDefault();
+    setMessage('');
+    setMessageType('');
     setLoading(true);
     try {
-      const payload = {
-        email: String(email).toLowerCase().trim(),
-        code: String(code).trim(),
-      };
-      // ✅ your backend route is /api/auth/verify
-      const r = await api.post('/api/auth/verify', payload);
-      setMsg(r.data?.message || 'Verified');
+      const response = await api.post('/api/auth/verify', {
+        email: email.toLowerCase().trim(),
+        code: code.trim(),
+      });
+      setMessage(response.data?.message || 'Email verified successfully.');
+      setMessageType('success');
 
-      if (r.data?.token) {
-        localStorage.setItem('token', r.data.token);
-        if (r.data?.user) localStorage.setItem('user', JSON.stringify(r.data.user));
+      if (response.data?.token) {
+        localStorage.setItem('token', response.data.token);
+        if (response.data?.user) localStorage.setItem('user', JSON.stringify(response.data.user));
         navigate('/dashboard', { replace: true });
       }
     } catch (err) {
-      setMsg(err?.response?.data?.message || 'Verification failed');
+      setMessage(err?.response?.data?.message || 'Verification failed. Check the code and try again.');
+      setMessageType('error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleResend = async () => {
-    setMsg('');
+    if (!email.trim()) {
+      setMessage('Enter your email address first.');
+      setMessageType('error');
+      return;
+    }
     setLoading(true);
+    setMessage('');
+    setMessageType('');
     try {
-      const payload = { email: String(email).toLowerCase().trim() };
-      if (!payload.email) {
-        setMsg('Please enter your email first');
-        return;
-      }
-      // ✅ your backend route is /api/auth/resend
-      const r = await api.post('/api/auth/resend', payload);
-      setMsg(r.data?.message || 'Code resent');
-      setCooldown(60); // reset cooldown
+      const response = await api.post('/api/auth/resend', { email: email.toLowerCase().trim() });
+      setMessage(response.data?.message || 'A new verification code has been sent.');
+      setMessageType('success');
+      setCooldown(60);
     } catch (err) {
-      setMsg(err?.response?.data?.message || 'Resend failed');
+      setMessage(err?.response?.data?.message || 'Unable to resend the code right now.');
+      setMessageType('error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 animate-gradient-x flex items-center">
-      <div className="max-w-md w-full mx-auto bg-white/20 backdrop-blur border border-white/25 rounded-2xl p-6 text-white">
-        <h1 className="text-2xl font-bold mb-2">Verify your email</h1>
-        <p className="text-white/90 text-sm mb-4">
-          Enter the email you registered with and the 6-digit code we sent you.
-        </p>
-
-        <form onSubmit={handleVerify} className="space-y-3">
-          <input
-            type="email"
-            required
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck="false"
-            inputMode="email"
-            className="w-full rounded-xl border border-white/30 bg-white/20 text-white placeholder-white/80 px-4 py-3 outline-none focus:ring-2 focus:ring-white/70"
-          />
-          <input
-            type="text"
-            required
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="6-digit code"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\\D/g, '').slice(0, 6))}
-            className="w-full rounded-xl border border-white/30 bg-white/20 text-white placeholder-white/80 px-4 py-3 outline-none focus:ring-2 focus:ring-white/70 tracking-widest text-center"
-          />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-11 rounded-xl text-sm font-semibold text-gray-900 bg-white hover:bg-white/90 disabled:opacity-60"
-          >
-            {loading ? 'Verifying…' : 'Verify'}
-          </button>
-        </form>
-
-        <div className="mt-3 flex items-center justify-between">
-          <button
-            onClick={handleResend}
-            disabled={loading || !email || cooldown > 0}
-            className="text-sm underline decoration-white/60 underline-offset-2 disabled:opacity-60"
-            title={!email ? 'Enter your email first' : cooldown > 0 ? `Wait ${cdLabel}` : ''}
-          >
-            {cooldown > 0 ? `Resend code in ${cdLabel}` : 'Resend code'}
-          </button>
-          <button
-            onClick={() => { setCode(''); setMsg(''); }}
-            className="text-sm text-white/80 hover:text-white"
-          >
-            Clear code
-          </button>
-        </div>
-
-        {msg && (
-          <div className="mt-4 rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-sm">
-            {msg}
+    <>
+      <Navbar />
+      <main className="auth-shell">
+        <section className="auth-showcase" aria-labelledby="verify-showcase-title">
+          <div>
+            <span className="auth-kicker">One final step</span>
+            <h1 id="verify-showcase-title">Verify your email to activate your account.</h1>
+            <p>
+              We use email verification to confirm account ownership before opening the Viraloft dashboard. Enter the six-digit code sent to your registered address.
+            </p>
           </div>
-        )}
-      </div>
-    </div>
+          <div className="auth-proof-grid">
+            <div className="auth-proof"><strong>6 digits</strong><span>Enter only the numeric verification code from your email.</span></div>
+            <div className="auth-proof"><strong>60 second resend</strong><span>A short cooldown helps prevent accidental repeated requests.</span></div>
+            <div className="auth-proof"><strong>Account access</strong><span>Successful verification takes you directly to your dashboard.</span></div>
+          </div>
+        </section>
+
+        <section className="auth-panel" aria-labelledby="verify-title">
+          <h2 id="verify-title">Verify email</h2>
+          <p>Check your inbox and enter the code below.</p>
+
+          {message && (
+            <div className={`auth-alert ${messageType === 'success' ? 'auth-success' : ''}`} role="status">
+              {message}
+            </div>
+          )}
+
+          <form onSubmit={handleVerify}>
+            <div className="auth-field">
+              <label htmlFor="verify-email">Email address</label>
+              <input
+                id="verify-email"
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+
+            <div className="auth-field">
+              <label htmlFor="verify-code">Verification code</label>
+              <input
+                id="verify-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                style={{ letterSpacing: '.35em', textAlign: 'center', fontWeight: 800 }}
+                required
+              />
+            </div>
+
+            <button type="submit" className="auth-submit" disabled={loading || code.length !== 6}>
+              {loading ? 'Verifying…' : 'Verify and continue'}
+            </button>
+          </form>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <button type="button" onClick={handleResend} disabled={loading || cooldown > 0} className="font-semibold text-indigo-200 disabled:cursor-not-allowed disabled:opacity-50">
+              {cooldown > 0 ? `Resend in ${cooldownLabel}` : 'Resend code'}
+            </button>
+            <Link to="/login" className="font-semibold text-slate-400 hover:text-white">Back to sign in</Link>
+          </div>
+        </section>
+      </main>
+    </>
   );
 }

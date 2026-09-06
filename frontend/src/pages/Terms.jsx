@@ -1,251 +1,157 @@
-import React, { useLayoutEffect } from "react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-import Navbar from "../components/Navbar.jsx";
+import React from 'react';
+import { Link } from 'react-router-dom';
+import Navbar from '../components/Navbar.jsx';
+import Footer from '../components/Footer.jsx';
 
-// Viraloft — Terms & Conditions (React + Tailwind + GSAP)
+const sections = [
+  ['welcome', '1. Welcome'],
+  ['services', '2. Services'],
+  ['payments', '3. Payments'],
+  ['refunds', '4. Refunds'],
+  ['privacy', '5. Privacy'],
+  ['security', '6. Account Security'],
+  ['liability', '7. Liability'],
+  ['conduct', '8. Conduct & Updates'],
+  ['refill', '9. Refill / No-Refill'],
+  ['speed', '10. Pricing & Speed'],
+  ['links', '11. Link Validity'],
+  ['service-policy', '12. Service Policy'],
+  ['contact', 'Contact'],
+];
 
 export default function Terms() {
-  useLayoutEffect(() => {
-    gsap.registerPlugin(ScrollTrigger);
-    const ctx = gsap.context(() => {
-      gsap.utils.toArray(".glass-card").forEach((el, i) => {
-        gsap.from(el, {
-          opacity: 0,
-          y: 28,
-          duration: 0.8,
-          ease: "power2.out",
-          delay: i * 0.03,
-          scrollTrigger: { trigger: el, start: "top 85%" },
-        });
-      });
-    });
-    return () => ctx.revert();
-  }, []);
-
-  const navLinks = [
-    { id: "welcome", label: "1. Welcome" },
-    { id: "services", label: "2. Services" },
-    { id: "payments", label: "3. Payments" },
-    { id: "refunds", label: "4. Refunds" },
-    { id: "privacy", label: "5. Privacy" },
-    { id: "security", label: "6. Account Security" },
-    { id: "liability", label: "7. Liability" },
-    { id: "conduct", label: "8. Conduct & Updates" },
-    { id: "refill", label: "9. Refill / No-Refill" },
-    { id: "speed", label: "10. Pricing & Speed" },
-    { id: "links", label: "11. Link Validity" },
-    { id: "service-policy", label: "12. Service Policy" },
-    { id: "contact", label: "Contact" },
-  ];
-
-  const scrollTo = (id) => (e) => {
-    e.preventDefault();
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   return (
     <>
       <Navbar />
-      {/* Match other pages: animated gradient background */}
-      <main className="relative min-h-screen overflow-hidden bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 animate-gradient-x text-slate-100">
-        {/* Shell */}
-        <div className="mx-auto max-w-6xl px-4 pb-20 pt-6 sm:px-6 lg:px-8">
-          {/* Top in-page nav */}
-          <nav className="glass-card mb-6 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
-            <a href="#top" className="flex items-center gap-3" onClick={scrollTo("top")}>
-              {/* Use your public logo */}
-              <img
-                src="/LogoIcon.png"
-                alt="Viraloft"
-                className="h-9 w-9 select-none object-contain"
-                draggable="false"
-              />
-              <span className="text-base font-extrabold tracking-tight text-white">Viraloft</span>
-            </a>
-            <div className="hidden gap-4 text-sm font-semibold text-white/90 sm:flex">
-              {navLinks.slice(0, 4).map((l) => (
-                <a key={l.id} href={`#${l.id}`} onClick={scrollTo(l.id)} className="hover:text-white">
-                  {l.label}
-                </a>
-              ))}
-            </div>
-            <a
-              href="#contact"
-              onClick={scrollTo("contact")}
-              className="rounded-xl bg-gradient-to-tr from-teal-400 to-sky-400 px-3 py-2 text-sm font-black text-slate-900 shadow-lg ring-1 ring-white/30"
-            >
-              Contact
-            </a>
+      <main className="legal-page">
+        <article className="legal-card !max-w-5xl">
+          <span className="legal-updated">Terms and service policy</span>
+          <h1>Terms &amp; Conditions</h1>
+          <p>
+            These terms explain how Viraloft accounts, digital services, payments, refunds, service delivery and acceptable use are handled. By using the platform, you agree to these terms and the applicable policies of the platforms connected to the services you choose.
+          </p>
+
+          <div className="legal-actions">
+            <Link to="/privacy" className="primary-link">Privacy policy</Link>
+            <Link to="/contact" className="secondary-link">Contact</Link>
+          </div>
+
+          <nav aria-label="Terms sections" className="my-8 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {sections.map(([id, label]) => (
+              <a key={id} href={`#${id}`} className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm font-bold text-slate-300 no-underline transition hover:border-indigo-500/50 hover:text-white">
+                {label}
+              </a>
+            ))}
           </nav>
 
-          {/* Hero */}
-          <header id="top" className="mb-6">
-            <h1 className="text-4xl font-extrabold leading-tight text-white sm:text-5xl">
-              Terms & Conditions
-            </h1>
-            <p className="mt-2 max-w-3xl text-white/90">
-              Welcome to <span className="font-bold text-white">Viraloft</span>. We provide safe, ethical, and policy-compliant digital services. By using our platform, you agree to the terms outlined below.
-            </p>
-          </header>
-
-          {/* TOC */}
-          <section className="glass-card mb-6 rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-gradient-to-tr from-fuchsia-500 to-sky-400 px-3 py-1 text-xs font-black text-slate-900 shadow">
-              Overview
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {navLinks.map((l) => (
-                <a
-                  key={l.id}
-                  href={`#${l.id}`}
-                  onClick={scrollTo(l.id)}
-                  className="rounded-xl border border-white/20 bg-white/80 px-3 py-2 text-sm font-bold text-slate-900 shadow hover:bg-white"
-                >
-                  {l.label}
-                </a>
-              ))}
-            </div>
-          </section>
-
-          {/* Sections */}
           <Section id="welcome" title="1. Welcome">
-            We proudly declare that <b>Viraloft</b> does not cause financial harm, national security risk, or privacy violations. Our goal is to offer safe and ethical digital services that respect users and comply with national laws and platform policies.
+            <p>Viraloft provides digital services through an online panel. Users are responsible for choosing services that fit their goals and for following all applicable laws and third-party platform rules.</p>
           </Section>
 
           <Section id="services" title="2. Services">
-            <Sub>2.1 Local Engagement Services</Sub>
-            <p className="text-white/90">
-              Cosmetic metrics (likes, followers, views) intended to enhance appearance only. These do not guarantee organic growth, monetization, or platform approvals.
-            </p>
-            <Sub className="mt-4">2.2 Real Ad Services</Sub>
-            <p className="text-white/90">
-              Official ad services on Facebook, YouTube, Instagram, and TikTok. 100% policy-compliant. We do not support content involving smoking, weapons, politics, hate speech, or any harmful activities.
-            </p>
-            <Callout>Recommendation: choose Real Ad Services for sustainable, long-term growth.</Callout>
+            <h3>2.1 Engagement services</h3>
+            <p>Some services relate to digital engagement metrics such as views, likes or followers. These services do not guarantee organic growth, monetization, revenue, ranking, account approval or any specific business outcome.</p>
+            <h3>2.2 Advertising services</h3>
+            <p>Where advertising-related services are offered, customers remain responsible for the content being promoted and for complying with the advertising and community policies of the relevant platform.</p>
           </Section>
 
           <Section id="payments" title="3. Payments">
             <List>
-              <li>All orders are prepaid via JazzCash, Easypaisa, Upaisa, or debit/credit card.</li>
-              <li>Every transaction is logged for transparency and security.</li>
-              <li>Fraud or chargeback abuse may result in account suspension.</li>
+              <li>Orders are prepaid using the payment methods made available on the platform.</li>
+              <li>Transactions may be logged for account, support, fraud-prevention and reconciliation purposes.</li>
+              <li>Fraudulent activity or chargeback abuse may lead to account restrictions.</li>
             </List>
           </Section>
 
           <Section id="refunds" title="4. Refund & Return Policy">
             <List>
-              <li>Deposits are <b>non-refundable to bank accounts</b> once credited.</li>
-              <li>If a guaranteed service is undelivered or fails, the equivalent amount is credited to your <b>Viraloft panel balance</b>.</li>
-              <li>Panel balance can be used for other services but is not transferable or withdrawable.</li>
-              <li>Non-guaranteed services are provided as-is without refund entitlement.</li>
+              <li>Deposits credited to a Viraloft account are generally not refundable to a bank or wallet unless required by applicable law.</li>
+              <li>When an eligible guaranteed service cannot be delivered, the applicable amount may be returned to the customer&apos;s Viraloft balance.</li>
+              <li>Panel balance is intended for use on Viraloft and is not normally transferable or withdrawable.</li>
+              <li>Services explicitly identified as non-guaranteed or non-refill are provided subject to those limitations.</li>
             </List>
           </Section>
 
-          <Section id="privacy" title="5. Privacy Policy">
-            Your personal information is kept confidential. We do not sell or share data with third parties. Data is used to process orders, provide support, and improve services. You may request account/data deletion via support.
+          <Section id="privacy" title="5. Privacy">
+            <p>Personal information is handled according to the Viraloft Privacy Policy. Information may be used to operate accounts, process orders and payments, provide support, prevent abuse, maintain security and improve the service.</p>
           </Section>
 
           <Section id="security" title="6. Account Security">
             <List>
-              <li>Keep login credentials private and secure.</li>
-              <li>Two-Factor Authentication (2FA) is available in your account settings.</li>
+              <li>Keep your login credentials private and use a unique password.</li>
+              <li>You are responsible for activity performed through your account unless you promptly report suspected unauthorized access.</li>
             </List>
           </Section>
 
           <Section id="liability" title="7. Limited Liability">
-            We do not harm your accounts or content. If a platform removes content or limits reach, it is typically due to that platform’s policies. Users must follow each platform’s community and advertising guidelines.
+            <p>Third-party platforms control their own algorithms, moderation, reach, account restrictions and content policies. Viraloft cannot guarantee that a third-party platform will preserve content, metrics, reach or account status.</p>
           </Section>
 
           <Section id="conduct" title="8. User Conduct & Terms Updates">
             <List>
-              <li>Respectful communication with our team is required at all times.</li>
-              <li>Abusive users may be limited or blocked without notice.</li>
-              <li>Terms may be updated without prior notice. Continued use indicates acceptance of changes.</li>
+              <li>Users must communicate respectfully with support and staff.</li>
+              <li>Abuse, fraud, attempts to compromise the service or misuse of accounts may result in restrictions or suspension.</li>
+              <li>These terms may be updated as services, legal requirements or platform rules change. The current version published on this page applies.</li>
             </List>
           </Section>
 
           <Section id="refill" title="9. Refill & No-Refill Services">
-            <p className="text-white/90">
-              <b>Refill services</b> include a warranty period during which drops may be refilled or credited.
-              <b> Non-refill services</b> are used at your own discretion and are not covered by refill or refund.
-            </p>
+            <p>Services marked as refill include only the refill coverage stated in their service details. Services marked as non-refill do not include refill protection unless otherwise stated.</p>
           </Section>
 
           <Section id="speed" title="10. Pricing & Speed">
             <List>
-              <li><b>Best Speed</b> services are recommended for reliable, faster results.</li>
-              <li><b>Cheapest</b> services may be slower and require additional patience.</li>
+              <li>Prices and estimated delivery characteristics vary by service and may change.</li>
+              <li>Faster or premium services may be priced differently from lower-cost options.</li>
+              <li>Displayed delivery times are estimates unless a service explicitly states otherwise.</li>
             </List>
           </Section>
 
           <Section id="links" title="11. Link Validity & Public Access">
             <List>
-              <li>Provide correct, public links for each order.</li>
-              <li>Video/Post link → Likes, Views, Comments</li>
-              <li>Profile link → Followers</li>
-              <li>Channel link → YouTube Subscribers</li>
-              <li>Invalid/private links may cause failure; Viraloft is not responsible for such orders.</li>
+              <li>Provide the correct public URL or identifier requested by the selected service.</li>
+              <li>Private, deleted, restricted or incorrect links can prevent delivery.</li>
+              <li>Customers should verify the target before submitting an order.</li>
             </List>
           </Section>
 
-          <Section id="service-policy" title="12. Service Delivery Policy (Digital-Only)">
+          <Section id="service-policy" title="12. Digital Service Delivery">
             <List>
-              <li>No physical shipping is involved.</li>
-              <li>Delivery times vary per service and are shown in service details.</li>
-              <li>Guaranteed services specify coverage; non-guaranteed services do not include refill.</li>
+              <li>Viraloft services are digital; no physical shipping is involved.</li>
+              <li>Service-specific limits, refill coverage and other conditions shown in the catalog form part of the order information.</li>
+              <li>Users should review those details before placing an order.</li>
             </List>
           </Section>
 
           <Section id="contact" title="Contact & Company Information">
-            <p className="text-white/90">
-              <b>Viraloft</b>
-              <br />Office: <i>Near National Bank OF Pakistan in Khan wahan, Distt: Naushahro Feroze</i>
-              <br />Phone: <i>+923163273012</i>
-              <br />Email: <a className="text-sky-300 underline" href="mailto:kdrqasim@gmail.com">kdrqasim@gmail.com</a>
+            <p>
+              <strong>Viraloft</strong><br />
+              Near National Bank of Pakistan in Khan Wahan, District Naushahro Feroze<br />
+              Phone: +92 316 3273012<br />
+              Email: <a href="mailto:kdrqasim@gmail.com">kdrqasim@gmail.com</a>
             </p>
-            <p className="text-white/70">For legal inquiries or data requests, please contact us via email.</p>
+            <p>For account, legal or data-related inquiries, use the contact details above or the support options available on Viraloft.</p>
           </Section>
 
-          {/* Footer */}
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 text-sm text-white/70">
-            <span className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 font-semibold backdrop-blur">
-              © {new Date().getFullYear()} Viraloft — All rights reserved.
-            </span>
-            <span className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 font-semibold backdrop-blur">
-              Version 1.0 · Last updated {new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })}
-            </span>
-          </div>
-        </div>
+          <p className="mt-10 border-t border-slate-800 pt-5 text-xs text-slate-500">
+            © {new Date().getFullYear()} Viraloft. Last updated September 2026.
+          </p>
+        </article>
       </main>
+      <Footer />
     </>
   );
 }
 
 function Section({ id, title, children }) {
   return (
-    <section id={id} className="glass-card mb-6 rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
-      <h2 className="mb-2 text-2xl font-bold text-white">{title}</h2>
-      <div className="prose prose-invert max-w-none prose-p:leading-7 prose-li:leading-7">
-        {children}
-      </div>
+    <section id={id} className="scroll-mt-24 border-t border-slate-800/80 py-2 first:border-0">
+      <h2>{title}</h2>
+      <div className="text-slate-300">{children}</div>
     </section>
   );
 }
 
-function Sub({ children, className = "" }) {
-  return <h3 className={`text-lg font-semibold text-white ${className}`}>{children}</h3>;
-}
-
 function List({ children }) {
-  return <ul className="list-disc space-y-2 pl-5 text-white/90">{children}</ul>;
-}
-
-function Callout({ children }) {
-  return (
-    <div className="mt-4 rounded-xl border border-dashed border-white/30 bg-white/10 p-4 font-semibold text-white">
-      {children}
-    </div>
-  );
+  return <ul className="list-disc space-y-2 pl-5 leading-7">{children}</ul>;
 }
