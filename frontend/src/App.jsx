@@ -18,6 +18,7 @@ const Blog = lazy(() => import('./pages/Blog'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const OrdersPage = lazy(() => import('./pages/OrdersPage'));
 const CreateOrder = lazy(() => import('./pages/CreateOrder'));
+const AddBalance = lazy(() => import('./pages/AddBalance'));
 const SupportPage = lazy(() => import('./pages/SupportPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AdminMonetization = lazy(() => import('./pages/AdminMonetization'));
@@ -66,6 +67,7 @@ function AppRoutes() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/orders" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
           <Route path="/create-order" element={<ProtectedRoute><CreateOrder /></ProtectedRoute>} />
+          <Route path="/add-balance" element={<ProtectedRoute><AddBalance /></ProtectedRoute>} />
           <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
           <Route path="/admin/monetization" element={<ProtectedRoute roles={['admin']}><AdminMonetization /></ProtectedRoute>} />
