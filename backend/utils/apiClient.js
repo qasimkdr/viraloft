@@ -1,5 +1,5 @@
 // backend/utils/apiClient.js
-const axios = require('axios');
+const { postForm } = require('./providerRequest');
 
 const BASE_URL = process.env.SMM_API_URL;
 const API_KEY = process.env.SMM_API_KEY;
@@ -19,23 +19,6 @@ function assertConfigured() {
     err.status = 503;
     throw err;
   }
-}
-
-const client = axios.create({
-  baseURL: BASE_URL || 'http://localhost',
-  timeout: 20000,
-});
-
-async function postForm(path, obj) {
-  const body = new URLSearchParams();
-  Object.entries(obj).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) body.append(key, String(value));
-  });
-
-  const { data } = await client.post(path || '', body, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
-  return data;
 }
 
 function normalizeServicesResponse(raw) {
@@ -68,12 +51,6 @@ function normalizeServicesResponse(raw) {
   throw err;
 }
 
-/**
- * Fetch the vendor service catalog.
- * Successful responses are cached briefly because the vendor returns the
- * complete catalog for every request, while our frontend paginates locally.
- * Concurrent requests share one upstream request to avoid rate-limit bursts.
- */
 async function getServices(options = {}) {
   assertConfigured();
   const forceRefresh = Boolean(options.forceRefresh);
@@ -89,19 +66,29 @@ async function getServices(options = {}) {
     try {
       const raw = await postForm('', { key: API_KEY, action: 'services' });
       const services = normalizeServicesResponse(raw);
-      serviceCache = {
-        data: services,
-        expiresAt: Date.now() + SERVICE_CACHE_MS,
-      };
+      serviceCache = { data: services, expiresAt: Date.now() + SERVICE_CACHE_MS };
       return services;
     } catch (err) {
-      // A recently cached catalog is safer than blanking the storefront during
-      // a temporary provider outage. Never use stale data if no cache exists.
       if (Array.isArray(serviceCache.data) && serviceCache.data.length) {
         console.warn('[apiClient] Vendor services refresh failed; serving stale cache:', err.message);
         return serviceCache.data;
       }
-      if (!err.status) err.status = err?.response?.status || 502;
+
+      const upstreamStatus = err?.providerStatus || err?.response?.status || err?.status;
+      if (upstreamStatus === 401 || upstreamStatus === 403) {
+        console.error('[apiClient] Provider authentication/access rejected:', err.message);
+        const accessErr = new Error(
+          upstreamStatus === 403
+            ? 'Service provider denied this server request. Check SMM API URL/key and provider IP/domain restrictions.'
+            : 'Service provider rejected the API credentials. Check SMM_API_KEY.'
+        );
+        accessErr.status = 502;
+        accessErr.providerStatus = upstreamStatus;
+        accessErr.cause = err;
+        throw accessErr;
+      }
+
+      if (!err.status) err.status = 502;
       throw err;
     } finally {
       servicesInFlight = null;
@@ -117,13 +104,7 @@ function clearServicesCache() {
 
 async function addOrder(service, quantity, link, comments) {
   assertConfigured();
-  const payload = {
-    key: API_KEY,
-    action: 'add',
-    service,
-    quantity,
-    link,
-  };
+  const payload = { key: API_KEY, action: 'add', service, quantity, link };
   if (comments) payload.comments = comments;
 
   const data = await postForm('', payload);
