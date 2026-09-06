@@ -3,12 +3,14 @@ import Navbar from '../components/Navbar';
 import api from '../lib/api';
 import { AuthContext } from '../context/AuthContext';
 
-const methods = ['JazzCash', 'Easypaisa', 'Bank Transfer', 'Crypto', 'Other'];
+const methods = ['Easypaisa', 'SadaPay', 'WhatsApp Manual Deposit', 'Other'];
+const PAYMENT_NUMBER = '03163273012';
+const WHATSAPP_NUMBER = '923218015121';
 
 export default function AddBalance() {
   const { token, user, currency } = useContext(AuthContext);
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('JazzCash');
+  const [method, setMethod] = useState('Easypaisa');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -17,6 +19,11 @@ export default function AddBalance() {
 
   const numericAmount = useMemo(() => Number(amount), [amount]);
   const validAmount = Number.isFinite(numericAmount) && numericAmount > 0;
+
+  const whatsappMessage = encodeURIComponent(
+    `Hello Viraloft, I want to deposit balance in my account${user?.username ? ` (${user.username})` : ''}${validAmount ? `. Amount: ${currency || 'PKR'} ${numericAmount}` : ''}. Please guide me.`
+  );
+  const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMessage}`;
 
   const submitRequest = async (event) => {
     event.preventDefault();
@@ -34,11 +41,12 @@ export default function AddBalance() {
       const message = [
         `User: ${user?.username || user?.email || 'Account holder'}`,
         `Requested amount: ${currency || 'USD'} ${numericAmount}`,
-        `Preferred payment method: ${method}`,
+        `Payment method: ${method}`,
+        `Official Easypaisa/SadaPay number: ${PAYMENT_NUMBER}`,
         reference ? `Payment/reference ID: ${reference}` : 'Payment/reference ID: Not provided yet',
         note ? `Note: ${note}` : 'Note: None',
         '',
-        'Please send the payment instructions or verify the payment and credit my balance after confirmation.',
+        'Please verify the payment and credit my balance after confirmation.',
       ].join('\n');
 
       const response = await api.post('/api/tickets',
@@ -70,8 +78,34 @@ export default function AddBalance() {
           </span>
           <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Add Balance</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
-            Submit a top-up request for your account. Balance is credited only after payment is verified by Viraloft staff.
+            Send payment through Easypaisa or SadaPay, then submit your transaction details. Your balance is credited after payment is verified by Viraloft staff.
           </p>
+        </div>
+
+        <div className="mb-6 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-3xl border border-emerald-400/15 bg-emerald-500/10 p-5 sm:p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-300">Easypaisa & SadaPay</p>
+            <p className="mt-3 text-2xl font-black tracking-wide text-white">{PAYMENT_NUMBER}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Send your payment to this number using either Easypaisa or SadaPay. After payment, enter the transaction/reference ID below and submit your request.
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-green-400/15 bg-green-500/10 p-5 sm:p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-green-300">Need manual help?</p>
+            <p className="mt-3 text-lg font-bold text-white">Contact us on WhatsApp</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              You can contact Viraloft directly on WhatsApp for manual deposit assistance.
+            </p>
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-green-500 px-5 font-bold text-white transition hover:bg-green-400"
+            >
+              Contact on WhatsApp
+            </a>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.35fr_.65fr]">
@@ -95,7 +129,7 @@ export default function AddBalance() {
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-200">Preferred payment method</span>
+                <span className="mb-2 block text-sm font-semibold text-slate-200">Payment method</span>
                 <select
                   value={method}
                   onChange={(e) => setMethod(e.target.value)}
@@ -112,7 +146,7 @@ export default function AddBalance() {
                 type="text"
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
-                placeholder="Enter transaction ID if you already paid"
+                placeholder="Enter transaction ID after payment"
                 className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-slate-600 focus:border-indigo-400/50"
               />
             </label>
@@ -143,12 +177,12 @@ export default function AddBalance() {
           <aside className="rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/10 to-violet-500/5 p-5 sm:p-7">
             <h2 className="text-lg font-bold">How it works</h2>
             <ol className="mt-4 space-y-4 text-sm leading-6 text-slate-300">
-              <li><strong className="text-white">1.</strong> Enter the amount and preferred payment method.</li>
-              <li><strong className="text-white">2.</strong> Viraloft staff will reply to your support request with payment instructions or verification.</li>
-              <li><strong className="text-white">3.</strong> Your balance is credited after the payment is confirmed.</li>
+              <li><strong className="text-white">1.</strong> Send payment to <strong className="text-white">{PAYMENT_NUMBER}</strong> using Easypaisa or SadaPay.</li>
+              <li><strong className="text-white">2.</strong> Enter your amount and transaction/reference ID, then submit the balance request.</li>
+              <li><strong className="text-white">3.</strong> Viraloft staff verifies the payment and credits your account balance.</li>
             </ol>
             <div className="mt-6 rounded-2xl border border-amber-300/15 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100">
-              Do not send money to an account that was not provided through an official Viraloft support response.
+              Official deposit number: <strong>{PAYMENT_NUMBER}</strong>. For manual assistance, use the WhatsApp button above.
             </div>
           </aside>
         </div>
